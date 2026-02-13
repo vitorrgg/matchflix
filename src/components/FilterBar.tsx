@@ -4,7 +4,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { TMDBGenre, FilterState, VibeFilter } from "@/types";
 import { DURATION_MIN, DURATION_MAX } from "@/types";
-import { VIBE_OPTIONS } from "@/lib/constants";
+import { VIBE_OPTIONS, POPULAR_PROVIDERS } from "@/lib/constants";
 
 interface FilterBarProps {
   genres: TMDBGenre[];
@@ -12,16 +12,14 @@ interface FilterBarProps {
   onChange: (filters: FilterState) => void;
 }
 
-function DurationRangeSlider({
+function DurationMaxSlider({
   value,
   onChange,
 }: {
-  value: [number, number];
-  onChange: (v: [number, number]) => void;
+  value: number;
+  onChange: (v: number) => void;
 }) {
-  const [min, max] = value;
-  const pctMin = ((min - DURATION_MIN) / (DURATION_MAX - DURATION_MIN)) * 100;
-  const pctMax = ((max - DURATION_MIN) / (DURATION_MAX - DURATION_MIN)) * 100;
+  const pct = ((value - DURATION_MIN) / (DURATION_MAX - DURATION_MIN)) * 100;
 
   function formatTime(m: number) {
     if (m >= DURATION_MAX) return "4h+";
@@ -33,44 +31,29 @@ function DurationRangeSlider({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between text-xs text-white/70">
-        <span>{formatTime(min)}</span>
-        <span>{formatTime(max)}</span>
+      <div className="text-center text-sm font-medium text-white/80">
+        {value >= DURATION_MAX ? "Sem limite" : `Ate ${formatTime(value)}`}
       </div>
       <div className="relative h-6">
-        {/* Track background */}
         <div className="absolute top-1/2 h-1 w-full -translate-y-1/2 rounded-full bg-white/10" />
-        {/* Active range */}
         <div
           className="absolute top-1/2 h-1 -translate-y-1/2 rounded-full bg-primary"
-          style={{ left: `${pctMin}%`, width: `${pctMax - pctMin}%` }}
+          style={{ width: `${pct}%` }}
         />
-        {/* Min thumb */}
         <input
           type="range"
           min={DURATION_MIN}
           max={DURATION_MAX}
           step={10}
-          value={min}
-          onChange={(e) => {
-            const v = Number(e.target.value);
-            if (v < max) onChange([v, max]);
-          }}
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
           className="range-thumb absolute inset-0 w-full appearance-none bg-transparent"
         />
-        {/* Max thumb */}
-        <input
-          type="range"
-          min={DURATION_MIN}
-          max={DURATION_MAX}
-          step={10}
-          value={max}
-          onChange={(e) => {
-            const v = Number(e.target.value);
-            if (v > min) onChange([min, v]);
-          }}
-          className="range-thumb absolute inset-0 w-full appearance-none bg-transparent"
-        />
+      </div>
+      <div className="flex justify-between text-[10px] text-white/40">
+        <span>0min</span>
+        <span>2h</span>
+        <span>4h+</span>
       </div>
     </div>
   );
@@ -82,8 +65,9 @@ export function FilterBar({ genres, filters, onChange }: FilterBarProps) {
   const activeCount =
     filters.genreIds.length +
     (filters.vibe !== "any" ? 1 : 0) +
-    (filters.durationRange[0] > DURATION_MIN || filters.durationRange[1] < DURATION_MAX ? 1 : 0) +
-    (filters.minRating > 0 ? 1 : 0);
+    (filters.durationRange[1] < DURATION_MAX ? 1 : 0) +
+    (filters.minRating > 0 ? 1 : 0) +
+    (filters.providerIds.length > 0 ? 1 : 0);
 
   function toggleGenre(id: number) {
     const ids = filters.genreIds.includes(id)
@@ -92,12 +76,20 @@ export function FilterBar({ genres, filters, onChange }: FilterBarProps) {
     onChange({ ...filters, genreIds: ids });
   }
 
+  function toggleProvider(id: number) {
+    const ids = filters.providerIds.includes(id)
+      ? filters.providerIds.filter((p) => p !== id)
+      : [...filters.providerIds, id];
+    onChange({ ...filters, providerIds: ids });
+  }
+
   function resetFilters() {
     onChange({
       genreIds: [],
       durationRange: [DURATION_MIN, DURATION_MAX],
       vibe: "any",
       minRating: 0,
+      providerIds: [],
     });
   }
 
@@ -218,14 +210,14 @@ export function FilterBar({ genres, filters, onChange }: FilterBarProps) {
                   </div>
                 </div>
 
-                {/* Duration range */}
+                {/* Duration (max only) */}
                 <div className="mb-6">
                   <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted">
-                    Duracao
+                    Duracao maxima
                   </p>
-                  <DurationRangeSlider
-                    value={filters.durationRange}
-                    onChange={(v) => onChange({ ...filters, durationRange: v })}
+                  <DurationMaxSlider
+                    value={filters.durationRange[1]}
+                    onChange={(v) => onChange({ ...filters, durationRange: [DURATION_MIN, v] })}
                   />
                 </div>
 
@@ -265,7 +257,7 @@ export function FilterBar({ genres, filters, onChange }: FilterBarProps) {
                 </div>
 
                 {/* Vibe */}
-                <div>
+                <div className="mb-6">
                   <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted">
                     Vibe
                   </p>
@@ -285,6 +277,31 @@ export function FilterBar({ genres, filters, onChange }: FilterBarProps) {
                         {opt.emoji} {opt.label}
                       </button>
                     ))}
+                  </div>
+                </div>
+
+                {/* Streaming */}
+                <div>
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted">
+                    Streaming
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {POPULAR_PROVIDERS.map((p) => {
+                      const selected = filters.providerIds.includes(p.id);
+                      return (
+                        <button
+                          key={p.id}
+                          onClick={() => toggleProvider(p.id)}
+                          className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                            selected
+                              ? "bg-primary text-white"
+                              : "bg-white/8 text-white/60 hover:bg-white/15"
+                          }`}
+                        >
+                          {p.name}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               </div>

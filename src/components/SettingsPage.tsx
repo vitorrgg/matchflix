@@ -30,7 +30,7 @@ export function SettingsPage({ streamingCount, onStreamingClick }: SettingsPageP
           </svg>
         </div>
         <div className="flex-1">
-          <p className="font-semibold text-white">Meus Streamings</p>
+          <p className="font-semibold text-white">Streamings populares</p>
           <p className="text-xs text-muted">
             {streamingCount > 0
               ? `${streamingCount} servico${streamingCount > 1 ? "s" : ""} selecionado${streamingCount > 1 ? "s" : ""}`

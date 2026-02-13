@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabase } from "@/lib/supabase";
-import { getMovieDetails } from "@/lib/tmdb";
 import { friendlyError } from "../_helpers";
 
-// POST — record swipe + check for match
+// POST — record swipe (match detection moved to poll/results)
 export async function POST(req: NextRequest) {
   try {
     const { roomId, userId, movieId, direction } = await req.json();
@@ -34,47 +33,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Check for match only on right swipes
-    if (direction === "right") {
-      const { count: participantCount } = await supabase
-        .from("room_participants")
-        .select("*", { count: "exact", head: true })
-        .eq("room_id", roomId);
-
-      const { count: likeCount } = await supabase
-        .from("swipes")
-        .select("*", { count: "exact", head: true })
-        .eq("room_id", roomId)
-        .eq("movie_id", movieId)
-        .eq("direction", "right");
-
-      if (
-        participantCount &&
-        likeCount &&
-        participantCount > 1 &&
-        likeCount >= participantCount
-      ) {
-        // It's a match — fetch movie info
-        try {
-          const movie = await getMovieDetails(movieId);
-          return NextResponse.json({
-            matched: true,
-            matchedMovie: {
-              movieId,
-              title: movie.title,
-              posterPath: movie.poster_path,
-            },
-          });
-        } catch {
-          return NextResponse.json({
-            matched: true,
-            matchedMovie: { movieId, title: "Filme", posterPath: null },
-          });
-        }
-      }
-    }
-
-    return NextResponse.json({ matched: false });
+    return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json({ error: friendlyError(e) }, { status: 500 });
   }

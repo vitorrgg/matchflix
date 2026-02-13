@@ -19,20 +19,31 @@ import { FilterBar } from "./FilterBar";
 import { SwipeButtons } from "./SwipeButtons";
 
 interface CardDeckProps {
-  providerParam?: string;
+  /** Filters for solo mode discovery */
+  filters?: FilterState;
+  onFiltersChange?: (filters: FilterState) => void;
   onSwipe?: (movie: TMDBMovie, direction: SwipeDirection) => void;
   likedMovies?: TMDBMovie[];
   showSummary?: boolean;
   onRestart?: () => void;
+  /** Shared movie IDs for room mode — overrides local discovery */
+  sharedMovieIds?: number[];
+  /** Callback when user finishes all shared movies */
+  onAllSwiped?: () => void;
 }
 
 export function CardDeck({
-  providerParam,
+  filters: externalFilters,
+  onFiltersChange,
   onSwipe,
   likedMovies = [],
   showSummary = false,
   onRestart,
+  sharedMovieIds,
+  onAllSwiped,
 }: CardDeckProps) {
+  const isSharedMode = !!sharedMovieIds && sharedMovieIds.length > 0;
+
   const [movies, setMovies] = useState<TMDBMovie[]>([]);
   const [genres, setGenres] = useState<TMDBGenre[]>([]);
   const [movieProviders, setMovieProviders] = useState<
@@ -44,12 +55,21 @@ export function CardDeck({
   const [noResults, setNoResults] = useState(false);
   const [exhausted, setExhausted] = useState(false);
   const [modalMovieId, setModalMovieId] = useState<number | null>(null);
-  const [filters, setFilters] = useState<FilterState>({
+  const [allDone, setAllDone] = useState(false);
+
+  // Internal filters for solo mode (used when no external filters provided)
+  const [internalFilters, setInternalFilters] = useState<FilterState>({
     genreIds: [],
     durationRange: [DURATION_MIN, DURATION_MAX],
     vibe: "any",
     minRating: 0,
+    providerIds: [],
   });
+
+  const filters = externalFilters ?? internalFilters;
+  const setFilters = onFiltersChange ?? setInternalFilters;
+  const providerParam = filters.providerIds.length > 0 ? filters.providerIds.join("|") : "";
+
   const fetchingRef = useRef(false);
 
   // Fetch genres once
@@ -62,7 +82,52 @@ export function CardDeck({
       .catch(() => {});
   }, []);
 
-  // Build the genre param combining explicit genres + vibe
+  // --- Shared mode: fetch movie details by ID ---
+  useEffect(() => {
+    if (!isSharedMode) return;
+
+    setLoading(true);
+    setAllDone(false);
+    setIndex(0);
+
+    const fetchDetails = async () => {
+      const results: TMDBMovie[] = [];
+      for (const id of sharedMovieIds!) {
+        try {
+          const res = await fetch(`/api/movies/${id}`);
+          if (res.ok) {
+            const data = await res.json();
+            // Map TMDBMovieDetail to TMDBMovie shape for the card
+            results.push({
+              id: data.id,
+              title: data.title,
+              original_title: data.original_title,
+              overview: data.overview,
+              poster_path: data.poster_path,
+              backdrop_path: data.backdrop_path,
+              release_date: data.release_date,
+              vote_average: data.vote_average,
+              vote_count: data.vote_count,
+              popularity: data.popularity,
+              genre_ids: data.genres?.map((g: { id: number }) => g.id) ?? [],
+              adult: data.adult,
+              original_language: data.original_language,
+              video: false,
+            });
+          }
+        } catch {
+          // skip failed fetches
+        }
+      }
+      setMovies(results);
+      setLoading(false);
+      setNoResults(results.length === 0);
+    };
+
+    fetchDetails();
+  }, [isSharedMode, sharedMovieIds]);
+
+  // --- Solo mode: discover movies ---
   const getGenreParam = useCallback(() => {
     const ids = new Set<number>();
     for (const id of filters.genreIds) ids.add(id);
@@ -70,9 +135,9 @@ export function CardDeck({
     return ids.size > 0 ? Array.from(ids).join(",") : "";
   }, [filters.genreIds, filters.vibe]);
 
-  // Fetch movies when filters, providers, or page change
   const fetchMovies = useCallback(
     async (pageNum: number, append: boolean) => {
+      if (isSharedMode) return;
       if (fetchingRef.current) return;
       fetchingRef.current = true;
       setLoading(true);
@@ -82,17 +147,13 @@ export function CardDeck({
         if (genreParam) qs.set("genre", genreParam);
         if (providerParam) qs.set("providers", providerParam);
 
-        // Duration range
         const [dMin, dMax] = filters.durationRange;
         if (dMin > DURATION_MIN) qs.set("runtime_gte", String(dMin));
         if (dMax < DURATION_MAX) qs.set("runtime_lte", String(dMax));
-
-        // Min rating
         if (filters.minRating > 0) qs.set("vote_gte", String(filters.minRating));
 
         const res = await fetch(`/api/movies?${qs}`);
         if (!res.ok) {
-          // API error — treat as no results for this filter combo
           if (!append) {
             setMovies([]);
             setIndex(0);
@@ -113,7 +174,6 @@ export function CardDeck({
           }
           setExhausted(false);
         } else {
-          // Empty results
           if (!append) {
             setMovies([]);
             setIndex(0);
@@ -135,27 +195,29 @@ export function CardDeck({
         fetchingRef.current = false;
       }
     },
-    [getGenreParam, providerParam, filters.durationRange, filters.minRating],
+    [isSharedMode, getGenreParam, providerParam, filters.durationRange, filters.minRating],
   );
 
-  // Reset when filters or providers change
+  // Solo: reset when filters change
   useEffect(() => {
+    if (isSharedMode) return;
     setPage(1);
     setMovieProviders({});
     setExhausted(false);
     setNoResults(false);
     fetchMovies(1, false);
-  }, [filters, providerParam, fetchMovies]);
+  }, [isSharedMode, filters, providerParam, fetchMovies]);
 
-  // Load more when running low — but stop if exhausted or noResults
+  // Solo: load more when running low
   useEffect(() => {
+    if (isSharedMode) return;
     if (exhausted || noResults) return;
     if (index >= movies.length - 3 && !loading && movies.length > 0) {
       const nextPage = page + 1;
       setPage(nextPage);
       fetchMovies(nextPage, true);
     }
-  }, [index, movies.length, loading, page, fetchMovies, exhausted, noResults]);
+  }, [isSharedMode, index, movies.length, loading, page, fetchMovies, exhausted, noResults]);
 
   // Fetch watch providers for the current and next card
   useEffect(() => {
@@ -186,13 +248,35 @@ export function CardDeck({
     if (movie) {
       onSwipe?.(movie, direction);
     }
-    setIndex((i) => i + 1);
+    const newIndex = index + 1;
+    setIndex(newIndex);
+
+    // In shared mode, check if all movies are done
+    if (isSharedMode && newIndex >= movies.length) {
+      setAllDone(true);
+      onAllSwiped?.();
+    }
   }
 
   const current = movies[index];
   const next = movies[index + 1];
 
-  // Show summary of liked movies
+  // Shared mode: waiting for others after finishing
+  if (isSharedMode && allDone) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4">
+        <div className="h-10 w-10 animate-spin rounded-full border-3 border-primary border-t-transparent" />
+        <p className="text-sm font-medium text-white/60">
+          Esperando os outros terminarem...
+        </p>
+        <p className="text-xs text-white/30">
+          Voce avaliou todos os {movies.length} filmes
+        </p>
+      </div>
+    );
+  }
+
+  // Show summary of liked movies (solo mode)
   if (showSummary && likedMovies.length > 0) {
     return (
       <>
@@ -224,7 +308,6 @@ export function CardDeck({
                         Sem imagem
                       </div>
                     )}
-                    {/* Streaming badges */}
                     {providers && providers.length > 0 && (
                       <div className="absolute bottom-1.5 left-1.5 flex gap-1">
                         {providers.slice(0, 3).map((p) => (
@@ -261,28 +344,6 @@ export function CardDeck({
                 Continuar Descobrindo
               </button>
             )}
-            <button
-              onClick={() => {
-                const shareData = {
-                  title: "Matchflix",
-                  text: "Descubra filmes com seus amigos no Matchflix!",
-                  url: window.location.origin,
-                };
-                if (navigator.share) {
-                  navigator.share(shareData).catch(() => {});
-                } else {
-                  navigator.clipboard.writeText(
-                    `${shareData.text} ${shareData.url}`,
-                  );
-                }
-              }}
-              className="flex items-center gap-2 rounded-full bg-white/10 px-5 py-2 text-sm font-medium text-white/80 transition-colors hover:bg-white/15"
-            >
-              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-              </svg>
-              Compartilhar com amigos
-            </button>
           </div>
         </div>
         <MovieDetailModal
@@ -295,7 +356,19 @@ export function CardDeck({
 
   return (
     <>
-      <FilterBar genres={genres} filters={filters} onChange={setFilters} />
+      {/* Solo mode: show inline filter bar */}
+      {!isSharedMode && (
+        <FilterBar genres={genres} filters={filters} onChange={setFilters} />
+      )}
+
+      {/* Progress indicator for shared mode */}
+      {isSharedMode && movies.length > 0 && (
+        <div className="px-4 py-2 text-center">
+          <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white/60">
+            {Math.min(index + 1, movies.length)} de {movies.length}
+          </span>
+        </div>
+      )}
 
       {/* Card stack */}
       <div className="relative mx-auto aspect-[2/3] w-full max-w-[340px] sm:max-w-[380px]">
@@ -309,21 +382,24 @@ export function CardDeck({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <p className="text-sm font-medium text-white/50">
-              Essa combinacao de genero, tempo e streaming nao deu nenhum Match
+              Essa combinacao de filtros nao retornou nenhum resultado
             </p>
-            <button
-              onClick={() =>
-                setFilters({
-                  genreIds: [],
-                  durationRange: [DURATION_MIN, DURATION_MAX],
-                  vibe: "any",
-                  minRating: 0,
-                })
-              }
-              className="rounded-full bg-primary px-6 py-2 text-sm font-medium text-white"
-            >
-              Limpar Filtros
-            </button>
+            {!isSharedMode && (
+              <button
+                onClick={() =>
+                  setFilters({
+                    genreIds: [],
+                    durationRange: [DURATION_MIN, DURATION_MAX],
+                    vibe: "any",
+                    minRating: 0,
+                    providerIds: [],
+                  })
+                }
+                className="rounded-full bg-primary px-6 py-2 text-sm font-medium text-white"
+              >
+                Limpar Filtros
+              </button>
+            )}
           </div>
         ) : current ? (
           <AnimatePresence>

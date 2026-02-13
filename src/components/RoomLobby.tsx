@@ -2,59 +2,38 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import type { RoomParticipant } from "@/types";
 
 interface RoomLobbyProps {
-  participants: RoomParticipant[];
-  roomCode: string;
-  shareUrl: string;
   loading: boolean;
   error: string | null;
-  onCreateRoom: (nickname: string) => void;
+  onCreateRoom: (nickname: string, expectedCount: number, movieCount: number) => void;
   onJoinRoom: (code: string, nickname: string) => void;
-  onLeave: () => void;
-  /** If set, skip the create/join screen and go straight to the room */
-  inRoom: boolean;
-}
-
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-
-  function handleCopy() {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }
-
-  return (
-    <button
-      onClick={handleCopy}
-      className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium text-white/80 transition-colors hover:bg-white/20 active:scale-95"
-    >
-      {copied ? "Copiado!" : "Copiar link"}
-    </button>
-  );
+  /** Pre-fill code from URL param — auto-switches to join mode */
+  initialCode?: string;
+  /** Skip the menu and go directly to create or join */
+  initialMode?: "create" | "join";
 }
 
 export function RoomLobby({
-  participants,
-  roomCode,
-  shareUrl,
   loading,
   error,
   onCreateRoom,
   onJoinRoom,
-  onLeave,
-  inRoom,
+  initialCode,
+  initialMode,
 }: RoomLobbyProps) {
-  const [mode, setMode] = useState<"menu" | "create" | "join">("menu");
+  const hasInitialCode = !!initialCode;
+  const [mode, setMode] = useState<"menu" | "create" | "join">(
+    hasInitialCode ? "join" : initialMode ?? "menu",
+  );
   const [nickname, setNickname] = useState("");
-  const [code, setCode] = useState("");
+  const [code, setCode] = useState(initialCode?.toUpperCase() ?? "");
+  const [expectedCount, setExpectedCount] = useState(2);
+  const [movieCount, setMovieCount] = useState(20);
 
   function handleCreate() {
     if (!nickname.trim()) return;
-    onCreateRoom(nickname.trim());
+    onCreateRoom(nickname.trim(), expectedCount, movieCount);
   }
 
   function handleJoin() {
@@ -62,48 +41,6 @@ export function RoomLobby({
     onJoinRoom(code.trim().toUpperCase(), nickname.trim());
   }
 
-  // In-room view: show participants and share link
-  if (inRoom) {
-    return (
-      <div className="mx-4 rounded-2xl bg-card p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted">
-              Sala
-            </span>
-            <span className="ml-2 rounded bg-primary/20 px-2 py-0.5 font-mono text-sm font-bold text-primary">
-              {roomCode}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <CopyButton text={shareUrl} />
-            <button
-              onClick={onLeave}
-              className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/20"
-            >
-              Sair
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-3 flex items-center gap-2">
-          <span className="text-xs text-muted">Participantes:</span>
-          <div className="flex flex-wrap gap-1.5">
-            {participants.map((p) => (
-              <span
-                key={p.id}
-                className="rounded-full bg-white/10 px-2.5 py-0.5 text-xs font-medium text-white/80"
-              >
-                {p.nickname}
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Create/Join menu
   return (
     <div className="flex flex-col items-center gap-4 px-4 py-8">
       <h2 className="text-xl font-bold">Assistir em grupo</h2>
@@ -157,8 +94,49 @@ export function RoomLobby({
               onChange={(e) => setNickname(e.target.value)}
               maxLength={20}
               className="rounded-xl bg-white/10 px-4 py-3 text-sm text-white placeholder-white/40 outline-none focus:ring-2 focus:ring-primary/50"
-              onKeyDown={(e) => e.key === "Enter" && handleCreate()}
             />
+
+            {/* Expected participants */}
+            <div className="rounded-xl bg-white/5 px-4 py-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted">Participantes</span>
+                <span className="text-sm font-bold text-white">{expectedCount}</span>
+              </div>
+              <input
+                type="range"
+                min={2}
+                max={10}
+                value={expectedCount}
+                onChange={(e) => setExpectedCount(Number(e.target.value))}
+                className="range-thumb mt-2 w-full appearance-none bg-transparent"
+              />
+              <div className="flex justify-between text-[10px] text-white/30">
+                <span>2</span>
+                <span>10</span>
+              </div>
+            </div>
+
+            {/* Movie count */}
+            <div className="rounded-xl bg-white/5 px-4 py-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted">Filmes por rodada</span>
+                <span className="text-sm font-bold text-white">{movieCount}</span>
+              </div>
+              <input
+                type="range"
+                min={10}
+                max={30}
+                step={5}
+                value={movieCount}
+                onChange={(e) => setMovieCount(Number(e.target.value))}
+                className="range-thumb mt-2 w-full appearance-none bg-transparent"
+              />
+              <div className="flex justify-between text-[10px] text-white/30">
+                <span>10</span>
+                <span>30</span>
+              </div>
+            </div>
+
             <button
               onClick={handleCreate}
               disabled={loading || !nickname.trim()}

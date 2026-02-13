@@ -12,14 +12,24 @@ function generateCode(): string {
 }
 
 // POST — create a new room
-export async function POST() {
+export async function POST(req: NextRequest) {
   try {
+    const body = await req.json().catch(() => ({}));
+    const expectedCount = Math.min(10, Math.max(2, Number(body.expectedCount) || 2));
+    const movieCount = Math.min(30, Math.max(10, Number(body.movieCount) || 20));
+
     const supabase = getSupabase();
     const code = generateCode();
 
     const { data, error } = await supabase
       .from("rooms")
-      .insert({ code })
+      .insert({
+        code,
+        expected_count: expectedCount,
+        movie_count: movieCount,
+        status: "waiting",
+        movie_ids: [],
+      })
       .select()
       .single();
 

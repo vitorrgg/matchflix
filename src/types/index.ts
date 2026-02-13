@@ -93,6 +93,7 @@ export interface FilterState {
   durationRange: [number, number]; // min, max in minutes
   vibe: VibeFilter;
   minRating: number; // 0-10, 0 = no filter
+  providerIds: number[];
 }
 
 export type VibeFilter = "any" | "fun" | "intense" | "thoughtful" | "romantic";
@@ -102,10 +103,16 @@ export const DURATION_MAX = 240;
 
 // --- Supabase / Room types ---
 
+export type RoomStatus = "waiting" | "swiping" | "results";
+
 export interface Room {
   id: string;
   code: string;
   created_at: string;
+  expected_count: number;
+  movie_count: number;
+  status: RoomStatus;
+  movie_ids: number[];
 }
 
 export interface RoomParticipant {
@@ -114,6 +121,7 @@ export interface RoomParticipant {
   user_id: string;
   nickname: string;
   joined_at: string;
+  filters_ready: boolean;
 }
 
 export interface Swipe {

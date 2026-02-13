@@ -4,7 +4,12 @@
  * instead of JSON. This helper detects that and returns a friendly message.
  */
 export function friendlyError(e: unknown): string {
-  const raw = e instanceof Error ? e.message : String(e);
+  const raw =
+    e instanceof Error
+      ? e.message
+      : typeof e === "object" && e !== null && "message" in e
+        ? String((e as { message: unknown }).message)
+        : String(e);
 
   if (
     raw.includes("<!DOCTYPE") ||
